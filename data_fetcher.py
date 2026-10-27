@@ -18,11 +18,11 @@ def parse_win_pct(record_str: str) -> float:
     return 0.500
 
 
-def extract_advanced_efficiency(competitor: dict, league: str) -> dict:
-    default_ppg = 75.0 if league == "NCAAB" else 5.5
+def extract_ncaab_advanced_metrics(competitor: dict) -> dict:
     metrics = {
-        "primary_metric": default_ppg,
-        "secondary_metric": 0.60
+        "adj_o": 105.0,
+        "adj_d": 105.0,
+        "pace": 68.5
     }
     
     for stat in competitor.get("statistics", []):
@@ -30,14 +30,30 @@ def extract_advanced_efficiency(competitor: dict, league: str) -> dict:
         val_str = stat.get("displayValue", "0")
         try:
             val = float(re.findall(r"[\d\.]+", val_str)[0])
-            if "points" in name or "ppg" in name or "avg" in name:
-                if league == "NCAAB" and 50.0 <= val <= 105.0:
-                    metrics["primary_metric"] = val
-                elif league != "NCAAB" and 3.0 <= val <= 8.5:
-                    metrics["primary_metric"] = val
+            if "points" in name or "ppg" in name:
+                if 55.0 <= val <= 95.0:
+                    metrics["adj_o"] = val * 1.15
+            elif "oppg" in name or "pointsallowed" in name:
+                if 50.0 <= val <= 90.0:
+                    metrics["adj_d"] = val * 1.15
         except (ValueError, IndexError, TypeError):
             pass
             
+    return metrics
+
+
+def extract_football_efficiency(competitor: dict) -> dict:
+    metrics = {"yards_per_play": 5.5, "red_zone_pct": 0.60}
+    for stat in competitor.get("statistics", []):
+        name = stat.get("name", "").lower()
+        val_str = stat.get("displayValue", "0")
+        try:
+            val = float(re.findall(r"[\d\.]+", val_str)[0])
+            if "yardsperplay" in name or "ypg" in name:
+                if 3.0 <= val <= 8.5:
+                    metrics["yards_per_play"] = val
+        except (ValueError, IndexError, TypeError):
+            pass
     return metrics
 
 
@@ -98,9 +114,6 @@ def fetch_live_slate(league: str = "NFL") -> list:
         home_wp = parse_win_pct(home_rec)
         away_wp = parse_win_pct(away_rec)
 
-        home_eff = extract_advanced_efficiency(home_comp, league)
-        away_eff = extract_advanced_efficiency(away_comp, league)
-
         odds_list = comp.get("odds", [])
         book_home_spread = None
         book_total = None
@@ -135,24 +148,52 @@ def fetch_live_slate(league: str = "NFL") -> list:
         if book_total is None:
             book_total = default_total
 
-        rating_scale = 14.0 if league == "NCAAB" else (10.0 if league == "NFL" else 17.0)
-        stat_fair_margin = ((home_wp - away_wp) * rating_scale) + hfa
+        if league == "NCAAB":
+            home_adv = extract_ncaab_advanced_metrics(home_comp)
+            away_adv = extract_ncaab_advanced_metrics(away_comp)
 
-        if book_home_spread is None:
-            book_home_spread = round(-stat_fair_margin * 2.0) / 2.0
+            home_net_rtg = home_adv["adj_o"] - home_adv["adj_d"]
+            away_net_rtg = away_adv["adj_o"] - away_adv["adj_d"]
+            net_diff = home_net_rtg - away_net_rtg
 
-        market_implied_margin = -book_home_spread
-        model_expected_margin = (0.45 * stat_fair_margin) + (0.55 * market_implied_margin)
+            stat_fair_margin = (net_diff * 0.45) + hfa
+            if book_home_spread is None:
+                book_home_spread = round(-stat_fair_margin * 2.0) / 2.0
 
-        base_half = book_total / 2.0
-        h_score_base = home_eff["primary_metric"] if home_eff["primary_metric"] != (75.0 if league=="NCAAB" else 5.5) else base_half
-        a_score_base = away_eff["primary_metric"] if away_eff["primary_metric"] != (75.0 if league=="NCAAB" else 5.5) else base_half
-        
-        stat_total = h_score_base + a_score_base
-        model_expected_total = (0.60 * book_total) + (0.40 * stat_total)
+            market_implied_margin = -book_home_spread
+            model_expected_margin = (0.50 * stat_fair_margin) + (0.50 * market_implied_margin)
 
-        home_proj = round((model_expected_total + model_expected_margin) / 2.0, 1)
-        away_proj = round((model_expected_total - model_expected_margin) / 2.0, 1)
+            game_pace = (home_adv["pace"] + away_adv["pace"]) / 2.0
+            home_expected_eff = (home_adv["adj_o"] + away_adv["adj_d"]) / 2.0
+            away_expected_eff = (away_adv["adj_o"] + home_adv["adj_d"]) / 2.0
+            
+            stat_total = (home_expected_eff + away_expected_eff) * (game_pace / 100.0)
+            model_expected_total = (0.55 * book_total) + (0.45 * stat_total)
+
+            home_proj = round((model_expected_total + model_expected_margin) / 2.0, 1)
+            away_proj = round((model_expected_total - model_expected_margin) / 2.0, 1)
+
+        else:
+            home_eff = extract_football_efficiency(home_comp)
+            away_eff = extract_football_efficiency(away_comp)
+            ypp_diff = home_eff["yards_per_play"] - away_eff["yards_per_play"]
+            efficiency_margin_boost = ypp_diff * 3.2
+            
+            rating_scale = 10.0 if league == "NFL" else 17.0
+            stat_fair_margin = ((home_wp - away_wp) * rating_scale) + hfa + efficiency_margin_boost
+
+            if book_home_spread is None:
+                book_home_spread = round(-stat_fair_margin * 2.0) / 2.0
+
+            market_implied_margin = -book_home_spread
+            model_expected_margin = (0.50 * stat_fair_margin) + (0.50 * market_implied_margin)
+            
+            eff_total_modifier = ((home_eff["yards_per_play"] + away_eff["yards_per_play"] - 11.0) * 2.5)
+            stat_total = book_total + eff_total_modifier
+            model_expected_total = (0.55 * book_total) + (0.45 * stat_total)
+
+            home_proj = round((model_expected_total + model_expected_margin) / 2.0, 1)
+            away_proj = round((model_expected_total - model_expected_margin) / 2.0, 1)
 
         status_text = ev.get("status", {}).get("type", {}).get("shortDetail", "Upcoming")
 
