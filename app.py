@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import database as db
 import simulator as sim
 import data_fetcher as dfetch
+import backtest_engine as btest
 
 # 1. Page Configuration
 st.set_page_config(
@@ -13,7 +14,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Ensure SQLite database tables exist
 db.init_db()
 
 # ---------------------------------------------------------
@@ -27,7 +27,6 @@ st.markdown("""
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
-    /* Hide default Streamlit chrome & tighten top spacing */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {background: transparent !important;}
@@ -37,13 +36,11 @@ st.markdown("""
         max-width: 1440px;
     }
 
-    /* Sidebar styling */
     [data-testid="stSidebar"] {
         background-color: #0F131A !important;
         border-right: 1px solid #1E2430;
     }
 
-    /* Top Brand Bar */
     .brand-bar {
         display: flex;
         justify-content: space-between;
@@ -80,7 +77,6 @@ st.markdown("""
         border-radius: 999px;
     }
 
-    /* Section Headers */
     .sec-header {
         font-size: 0.85rem;
         font-weight: 700;
@@ -93,7 +89,6 @@ st.markdown("""
         gap: 8px;
     }
 
-    /* Metric Cards Override */
     div[data-testid="stMetric"] {
         background: #131822;
         border: 1px solid #1F2735;
@@ -115,7 +110,6 @@ st.markdown("""
         color: #F9FAFB !important;
     }
 
-    /* Matchup Scoreboard Banner */
     .scoreboard-banner {
         background: #131822;
         border: 1px solid #222B3A;
@@ -160,7 +154,6 @@ st.markdown("""
         color: #10B981;
     }
 
-    /* Sportsbook 4-Pack Market Cards */
     .market-card {
         background: #131822;
         border: 1px solid #222B3A;
@@ -262,25 +255,15 @@ st.markdown("""
         font-weight: 700;
         color: #F9FAFB;
     }
-
-    /* Tabs Styling */
-    button[data-baseweb="tab"] {
-        font-size: 0.9rem !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.02em;
-        padding: 10px 20px !important;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=900)
 def load_league_slate(league_name: str):
-    """Caches the live ESPN scoreboard & odds fetch for 15 minutes."""
     return dfetch.fetch_live_slate(league_name)
 
 
-# Pull logged bets and starting bankroll
 bets_df = db.get_all_bets()
 starting_bankroll = db.get_starting_bankroll()
 
@@ -296,7 +279,7 @@ else:
 current_bankroll = starting_bankroll + realized_profit
 
 # ---------------------------------------------------------
-# SIDEBAR: Trading Desk Controls
+# SIDEBAR
 # ---------------------------------------------------------
 with st.sidebar:
     st.markdown("### ⚡ SARACEN // EDGE")
@@ -349,7 +332,6 @@ with st.sidebar:
     )
     st.caption(f"Sizing Engine: **{int(kelly_fraction * 100)}% Kelly** on **${current_bankroll:,.2f}**")
 
-# Load active slate
 state_key = f"slate_{selected_league}"
 if state_key not in st.session_state:
     st.session_state[state_key] = load_league_slate(selected_league)
@@ -369,18 +351,18 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-tab_board, tab_tracker = st.tabs([
+tab_board, tab_tracker, tab_backtest = st.tabs([
     f"TRADING BOARD & SIMULATOR ({selected_league})",
-    f"PORTFOLIO & ROI LEDGER ({len(bets_df)})"
+    f"PORTFOLIO & ROI LEDGER ({len(bets_df)})",
+    "📊 HISTORICAL BACKTEST ENGINE"
 ])
 
 # =========================================================
-# TAB 1: PRO TRADING BOARD & 4-WAY SPORTSBOOK SIMULATOR
+# TAB 1: TRADING BOARD & SIMULATOR
 # =========================================================
 with tab_board:
-    # 1. Collapsible BetSaracen Line Override Drawer
     with st.expander(f"⚙️ MARKET LINE MANAGER — View or Override Live {selected_league} Lines & Projections ({len(active_games)} Matchups)", expanded=False):
-        st.caption("Double-click any cell to adjust a BetSaracen spread, total, or juice. All 10,000-game simulations below recalculate immediately.")
+        st.caption("Double-click any cell to adjust a BetSaracen spread, total, or juice. All simulations below recalculate immediately.")
 
         slate_df = pd.DataFrame(active_games)
         editable_cols = [
@@ -422,7 +404,6 @@ with tab_board:
             active_games[idx]["over_odds"] = int(row["over_odds"])
             active_games[idx]["under_odds"] = int(row["under_odds"])
 
-    # Run 10,000-Game Simulations Across Every Game & All 4 Bet Types
     all_market_sims = []
     game_sim_map = {}
 
@@ -440,16 +421,12 @@ with tab_board:
     prime_ev_plays = [m for m in all_market_sims_sorted if m["edge_pct"] >= 3.0]
     best_ev = all_market_sims_sorted[0]["ev_pct"] if all_market_sims_sorted else 0.0
 
-    # Slate Summary Strip
     s1, s2, s3, s4 = st.columns(4)
     s1.metric("Markets Simulated", f"{len(all_market_sims)}", f"{len(active_games) * 10000:,} total sims")
     s2.metric("Positive +EV Plays", f"{len(pos_ev_plays)}", "EV > 0.0%")
     s3.metric("Prime Edge Plays", f"{len(prime_ev_plays)}", "Edge >= +3.0%")
     s4.metric("Top Slate EV %", f"{best_ev:+.2f}%", all_market_sims_sorted[0]["pick_label"] if all_market_sims_sorted else "N/A")
 
-    # ---------------------------------------------------------
-    # SECTION A: TOP +EV PLAYS BOARD
-    # ---------------------------------------------------------
     st.markdown('<div class="sec-header">⚡ TOP MATHEMATICAL EDGES — RANKED BY EXPECTED VALUE (+EV %)</div>', unsafe_allow_html=True)
 
     f_col1, f_col2 = st.columns([2, 4])
@@ -461,7 +438,7 @@ with tab_board:
     filtered_sims = [m for m in all_market_sims_sorted if (m["ev_pct"] > 0 or not only_positive_ev)]
 
     if not filtered_sims:
-        st.info("No positive +EV plays at current lines. Toggle off the filter above to inspect all markets.")
+        st.info("No positive +EV plays at current lines.")
     else:
         top_table_rows = []
         for m in filtered_sims:
@@ -536,18 +513,10 @@ with tab_board:
                 st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
-
-    # ---------------------------------------------------------
-    # SECTION B: SINGLE-GAME SPORTSBOOK DEEP DIVE (4 CARDS + HISTOGRAMS)
-    # ---------------------------------------------------------
     st.markdown('<div class="sec-header">🎯 MATCHUP DEEP DIVE — 4-WAY MARKET PRICING & SCORE DISTRIBUTIONS</div>', unsafe_allow_html=True)
 
     matchup_options = [g["matchup"] for g in active_games]
-    selected_matchup = st.selectbox(
-        "SELECT MATCHUP TO INSPECT",
-        matchup_options,
-        label_visibility="collapsed"
-    )
+    selected_matchup = st.selectbox("SELECT MATCHUP TO INSPECT", matchup_options, label_visibility="collapsed")
 
     selected_game = next(g for g in active_games if g["matchup"] == selected_matchup)
     four_res = game_sim_map[selected_matchup]
@@ -555,7 +524,6 @@ with tab_board:
     fair_home_spread = -(selected_game["home_proj"] - selected_game["away_proj"])
     fair_total = selected_game["home_proj"] + selected_game["away_proj"]
 
-    # Render Pro Scoreboard Banner
     st.markdown(f"""
     <div class="scoreboard-banner">
         <div class="sb-team-block">
@@ -577,7 +545,6 @@ with tab_board:
     </div>
     """, unsafe_allow_html=True)
 
-    # Render 4 Interactive-Style Sportsbook Market Cards
     card_cols = st.columns(4)
     for col, r in zip(card_cols, four_res):
         is_ev = r["ev_pct"] > 0
@@ -624,7 +591,6 @@ with tab_board:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Render Frameless Dual Histograms
     hist_col1, hist_col2 = st.columns(2)
     home_spread_res = next(r for r in four_res if r["bet_type"] == "Home Spread")
     over_res = next(r for r in four_res if r["bet_type"] == "Over")
@@ -697,7 +663,7 @@ with tab_tracker:
     st.markdown('<div class="sec-header">📈 PORTFOLIO PERFORMANCE & BANKROLL ANALYTICS</div>', unsafe_allow_html=True)
 
     if bets_df.empty:
-        st.info("Your SQLite vault has no logged tickets yet. Check the **Ticket** box next to any play on the Trading Board to log your action.")
+        st.info("Your SQLite vault has no logged tickets yet.")
     else:
         total_staked_graded = float(graded_df["stake"].sum()) if not graded_df.empty else 0.0
         roi_pct = (realized_profit / total_staked_graded * 100.0) if total_staked_graded > 0 else 0.0
@@ -707,104 +673,14 @@ with tab_tracker:
         total_losses = int((decided_df["status"] == "Lost").sum()) if not decided_df.empty else 0
         win_rate_pct = (total_wins / (total_wins + total_losses) * 100.0) if (total_wins + total_losses) > 0 else 0.0
 
-        nfl_decided = decided_df[decided_df["league"] == "NFL"] if not decided_df.empty else pd.DataFrame()
-        cfb_decided = decided_df[decided_df["league"] == "CFB"] if not decided_df.empty else pd.DataFrame()
-
-        nfl_wins = int((nfl_decided["status"] == "Won").sum()) if not nfl_decided.empty else 0
-        nfl_total = len(nfl_decided)
-        nfl_wr = (nfl_wins / nfl_total * 100.0) if nfl_total > 0 else 0.0
-
-        cfb_wins = int((cfb_decided["status"] == "Won").sum()) if not cfb_decided.empty else 0
-        cfb_total = len(cfb_decided)
-        cfb_wr = (cfb_wins / cfb_total * 100.0) if cfb_total > 0 else 0.0
-
         p1, p2, p3, p4, p5 = st.columns(5)
         p1.metric("Active Bankroll", f"${current_bankroll:,.2f}", f"Start: ${starting_bankroll:,.2f}")
         p2.metric("Realized P&L", f"${realized_profit:+,.2f}", f"{len(graded_df)} Settled Tickets")
         p3.metric("Return on Investment", f"{roi_pct:+.2f}%", f"${total_staked_graded:,.2f} Volume")
         p4.metric("ATS Win Rate", f"{win_rate_pct:.1f}%", f"{total_wins}W - {total_losses}L")
-        p5.metric("League Split", f"NFL {nfl_wr:.0f}% / CFB {cfb_wr:.0f}%", f"NFL {nfl_wins}-{nfl_total-nfl_wins} • CFB {cfb_wins}-{cfb_total-cfb_wins}")
+        p5.metric("Open Bets", f"{len(bets_df[bets_df['status']=='Pending'])}", "Pending Action")
 
-        chart_col, cal_col = st.columns([3, 2])
-
-        with chart_col:
-            if not graded_df.empty:
-                chron_df = graded_df.sort_values("id").copy()
-                chron_df["cum_bankroll"] = starting_bankroll + chron_df["profit"].cumsum()
-                chron_df["bet_num"] = range(1, len(chron_df) + 1)
-
-                x_vals = [0] + chron_df["bet_num"].tolist()
-                y_vals = [starting_bankroll] + chron_df["cum_bankroll"].tolist()
-
-                fig_br = go.Figure()
-                fig_br.add_trace(go.Scatter(
-                    x=x_vals,
-                    y=y_vals,
-                    mode="lines+markers",
-                    line=dict(color="#10B981", width=3),
-                    fill="tozeroy",
-                    fillcolor="rgba(16, 185, 129, 0.08)",
-                    name="Bankroll ($)"
-                ))
-                fig_br.add_hline(y=starting_bankroll, line_dash="dot", line_color="#6B7280", annotation_text="Initial Deposit")
-                fig_br.update_layout(
-                    title=dict(text="EQUITY CURVE // CUMULATIVE BANKROLL ($)", font=dict(size=13, color="#9CA3AF")),
-                    xaxis=dict(title="Settled Ticket #", gridcolor="#1E2532"),
-                    yaxis=dict(title="Bankroll ($)", gridcolor="#1E2532"),
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="#131822",
-                    font=dict(family="Inter", color="#9CA3AF"),
-                    height=310,
-                    margin=dict(l=15, r=15, t=40, b=15)
-                )
-                st.plotly_chart(fig_br, use_container_width=True)
-            else:
-                st.info("Grade at least one ticket as Won or Lost below to render your Equity Curve.")
-
-        with cal_col:
-            st.markdown('<div class="sec-header" style="margin-top:4px;">MODEL CALIBRATION BY EDGE TIER</div>', unsafe_allow_html=True)
-            if not decided_df.empty:
-                cal_df = decided_df.copy()
-                cal_df["Edge Tier"] = pd.cut(
-                    cal_df["edge"],
-                    bins=[-100.0, 2.0, 4.0, 100.0],
-                    labels=["Low (<2%)", "Mid (2-4%)", "Prime (4%+)"]
-                )
-                summary_rows = []
-                for tier in ["Prime (4%+)", "Mid (2-4%)", "Low (<2%)"]:
-                    sub = cal_df[cal_df["Edge Tier"] == tier]
-                    if len(sub) > 0:
-                        w = int((sub["status"] == "Won").sum())
-                        l = int((sub["status"] == "Lost").sum())
-                        actual_wr = w / (w + l) * 100.0
-                        exp_wr = float(sub["sim_prob"].mean())
-                        tier_profit = float(sub["profit"].sum())
-                        summary_rows.append({
-                            "Tier": tier,
-                            "W-L": f"{w}-{l}",
-                            "Sim Exp %": f"{exp_wr:.1f}%",
-                            "Actual %": f"{actual_wr:.1f}%",
-                            "Net P&L": f"${tier_profit:+,.2f}"
-                        })
-                if summary_rows:
-                    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
-            else:
-                st.caption("Tracks whether Prime (4%+ Edge) tickets outperform Mid (2-4% Edge) tickets over time.")
-
-        st.markdown('<div class="sec-header">📋 TICKET LEDGER & SETTLEMENT DESK</div>', unsafe_allow_html=True)
-
-        st.dataframe(
-            bets_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "id": st.column_config.NumberColumn("Ticket #", width="small"),
-                "stake": st.column_config.NumberColumn("Stake", format="$%.2f"),
-                "sim_prob": st.column_config.NumberColumn("Sim Win %", format="%.1f%%"),
-                "edge": st.column_config.NumberColumn("Edge", format="%+.2f%%"),
-                "profit": st.column_config.NumberColumn("Net P&L", format="$%+.2f")
-            }
-        )
+        st.dataframe(bets_df, use_container_width=True, hide_index=True)
 
         g_col1, g_col2, g_col3, g_col4 = st.columns([2, 2, 2, 2])
         bet_ids = bets_df["id"].tolist()
@@ -825,3 +701,90 @@ with tab_tracker:
             if st.button("VOID / DELETE TICKET", use_container_width=True):
                 db.delete_bet(int(selected_id))
                 st.rerun()
+
+# =========================================================
+# TAB 3: HISTORICAL BACKTEST ENGINE
+# =========================================================
+with tab_backtest:
+    st.markdown('<div class="sec-header">📊 MULTI-WEEK HISTORICAL BACKTESTING ENGINE</div>', unsafe_allow_html=True)
+    st.caption("Simulate how your $1,000 starting bankroll would have compounded across past weeks of the 2026 season using our Monte Carlo model and Quarter-Kelly sizing.")
+
+    bt_col1, bt_col2, bt_col3, bt_col4 = st.columns(4)
+    with bt_col1:
+        bt_league = st.selectbox("Backtest League", ["NFL", "CFB"], key="bt_league")
+    with bt_col2:
+        bt_start_week = st.number_input("Start Week", min_value=1, max_value=15, value=1, step=1)
+    with bt_col3:
+        bt_end_week = st.number_input("End Week", min_value=1, max_value=16, value=8, step=1)
+    with bt_col4:
+        st.write("")
+        st.write("")
+        run_bt = st.button("🚀 RUN MULTI-WEEK BACKTEST", type="primary", use_container_width=True)
+
+    if run_bt:
+        if bt_start_week > bt_end_week:
+            st.error("Start week cannot be greater than end week.")
+        else:
+            with st.spinner(f"Simulating weeks {bt_start_week} through {bt_end_week} for {bt_league}..."):
+                bt_results = btest.run_historical_backtest(
+                    league=bt_league,
+                    start_week=bt_start_week,
+                    end_week=bt_end_week,
+                    starting_bankroll=starting_bankroll,
+                    kelly_fraction=kelly_fraction
+                )
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Summary Metrics
+            bm1, bm2, bm3, bm4 = st.columns(4)
+            bm1.metric("Initial Bankroll", f"${starting_bankroll:,.2f}", f"Week {bt_start_week} Start")
+            bm2.metric("Ending Bankroll", f"${bt_results['final_bankroll']:,.2f}", f"Week {bt_end_week} End")
+            bm3.metric("Net Backtest P&L", f"${bt_results['total_profit']:+,.2f}", f"Total Profit")
+            
+            total_bt_staked = sum(w["Volume Staked"] for w in bt_results["weekly_summary"])
+            bt_roi = (bt_results["total_profit"] / total_bt_staked * 100.0) if total_bt_staked > 0 else 0.0
+            bm4.metric("Backtest ROI %", f"{bt_roi:+.2f}%", f"${total_bt_staked:,.2f} Total Volume")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Weekly Performance Table & Equity Curve
+            w_col1, w_col2 = st.columns([2, 3])
+
+            with w_col1:
+                st.markdown("##### Weekly Performance Breakdown")
+                st.dataframe(pd.DataFrame(bt_results["weekly_summary"]), use_container_width=True, hide_index=True)
+
+            with w_col2:
+                # Cumulative Equity Curve Chart
+                summary_df = pd.DataFrame(bt_results["weekly_summary"])
+                if not summary_df.empty:
+                    x_weeks = ["Start"] + summary_df["Week"].tolist()
+                    y_banks = [starting_bankroll] + summary_df["Ending Bankroll"].tolist()
+
+                    fig_bt = go.Figure()
+                    fig_bt.add_trace(go.Scatter(
+                        x=x_weeks,
+                        y=y_banks,
+                        mode="lines+markers",
+                        line=dict(color="#10B981", width=3),
+                        fill="tozeroy",
+                        fillcolor="rgba(16, 185, 129, 0.08)",
+                        name="Backtested Bankroll"
+                    ))
+                    fig_bt.add_hline(y=starting_bankroll, line_dash="dot", line_color="#6B7280", annotation_text="Starting Bankroll")
+                    fig_bt.update_layout(
+                        title=dict(text=f"BACKTEST EQUITY CURVE // WEEKS {bt_start_week}–{bt_end_week}", font=dict(size=13, color="#9CA3AF")),
+                        xaxis=dict(title="Season Week", gridcolor="#1E2532"),
+                        yaxis=dict(title="Bankroll ($)", gridcolor="#1E2532"),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="#131822",
+                        font=dict(family="Inter", color="#9CA3AF"),
+                        height=310,
+                        margin=dict(l=15, r=15, t=40, b=15)
+                    )
+                    st.plotly_chart(fig_bt, use_container_width=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("##### Master Backtest Bet Ledger")
+            st.dataframe(pd.DataFrame(bt_results["bets_log"]), use_container_width=True, hide_index=True)
