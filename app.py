@@ -283,12 +283,12 @@ with st.sidebar:
 
     selected_league = st.segmented_control(
         "LEAGUE SLATE",
-        options=["NFL", "CFB", "NCAAB"],
-        default="NCAAB",
+        options=["ALL SPORTS", "NFL", "CFB", "NCAAB"],
+        default="ALL SPORTS",
         selection_mode="single"
     )
     if not selected_league:
-        selected_league = "NCAAB"
+        selected_league = "ALL SPORTS"
 
     if st.button("↻ Sync Live Market Feed", use_container_width=True):
         st.cache_data.clear()
@@ -328,11 +328,19 @@ with st.sidebar:
     )
     st.caption(f"Sizing Engine: **{int(kelly_fraction * 100)}% Kelly** on **${current_bankroll:,.2f}**")
 
-state_key = f"slate_{selected_league}"
-if state_key not in st.session_state:
-    st.session_state[state_key] = load_league_slate(selected_league)
-
-active_games = st.session_state[state_key]
+if selected_league == "ALL SPORTS":
+    leagues_to_load = ["NFL", "CFB", "NCAAB"]
+    active_games = []
+    for lg in leagues_to_load:
+        s_key = f"slate_{lg}"
+        if s_key not in st.session_state:
+            st.session_state[s_key] = load_league_slate(lg)
+        active_games.extend(st.session_state[s_key])
+else:
+    state_key = f"slate_{selected_league}"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = load_league_slate(selected_league)
+    active_games = st.session_state[state_key]
 
 # ---------------------------------------------------------
 # TOP BRAND HEADER BAR
@@ -341,64 +349,67 @@ st.markdown(f"""
 <div class="brand-bar">
     <div>
         <div class="brand-title">BETSARACEN QUANTITATIVE EDGE TERMINAL</div>
-        <div class="brand-sub">{selected_league} LIVE SLATE • 10,000-GAME MONTE CARLO ENGINE • LOCAL SQLITE VAULT</div>
+        <div class="brand-sub">{selected_league} MASTER SLATE • 10,000-GAME MONTE CARLO ENGINE • LOCAL SQLITE VAULT</div>
     </div>
-    <div class="live-pill">● {len(active_games)} {selected_league} GAMES ACTIVE</div>
+    <div class="live-pill">● {len(active_games)} TOTAL MATCHUPS ACTIVE</div>
 </div>
 """, unsafe_allow_html=True)
 
 tab_board, tab_tracker, tab_backtest = st.tabs([
-    f"TRADING BOARD & SIMULATOR ({selected_league})",
+    f"MASTER TRADING BOARD ({selected_league})",
     f"PORTFOLIO & ROI LEDGER ({len(bets_df)})",
     "📊 HISTORICAL BACKTEST ENGINE"
 ])
 
 # =========================================================
-# TAB 1: TRADING BOARD & SIMULATOR
+# TAB 1: MASTER TRADING BOARD & SIMULATOR
 # =========================================================
 with tab_board:
-    with st.expander(f"⚙️ MARKET LINE MANAGER — View or Override Live {selected_league} Lines & Projections ({len(active_games)} Matchups)", expanded=False):
-        st.caption("Double-click any cell to adjust a BetSaracen spread, total, or juice. All simulations below recalculate immediately.")
+    if selected_league != "ALL SPORTS":
+        with st.expander(f"⚙️ MARKET LINE MANAGER — View or Override Live {selected_league} Lines & Projections ({len(active_games)} Matchups)", expanded=False):
+            st.caption("Double-click any cell to adjust a BetSaracen spread, total, or juice. All simulations below recalculate immediately.")
 
-        slate_df = pd.DataFrame(active_games)
-        editable_cols = [
-            "matchup", "status", "away_record", "home_record",
-            "away_proj", "home_proj", "book_home_spread",
-            "home_spread_odds", "away_spread_odds", "book_total", "over_odds", "under_odds"
-        ]
+            slate_df = pd.DataFrame(active_games)
+            editable_cols = [
+                "matchup", "status", "away_record", "home_record",
+                "away_proj", "home_proj", "book_home_spread",
+                "home_spread_odds", "away_spread_odds", "book_total", "over_odds", "under_odds"
+            ]
 
-        edited_slate = st.data_editor(
-            slate_df[editable_cols],
-            use_container_width=True,
-            hide_index=True,
-            disabled=["matchup", "status", "away_record", "home_record"],
-            column_config={
-                "matchup": st.column_config.TextColumn("Matchup", width="medium"),
-                "status": st.column_config.TextColumn("Kickoff", width="small"),
-                "away_record": st.column_config.TextColumn("Away", width="small"),
-                "home_record": st.column_config.TextColumn("Home", width="small"),
-                "away_proj": st.column_config.NumberColumn("Away Proj", step=0.5, format="%.1f"),
-                "home_proj": st.column_config.NumberColumn("Home Proj", step=0.5, format="%.1f"),
-                "book_home_spread": st.column_config.NumberColumn("Book Home Line", step=0.5, format="%+.1f"),
-                "home_spread_odds": st.column_config.NumberColumn("Home Odds", step=5, format="%+d"),
-                "away_spread_odds": st.column_config.NumberColumn("Away Odds", step=5, format="%+d"),
-                "book_total": st.column_config.NumberColumn("Book Total", step=0.5, format="%.1f"),
-                "over_odds": st.column_config.NumberColumn("Over Odds", step=5, format="%+d"),
-                "under_odds": st.column_config.NumberColumn("Under Odds", step=5, format="%+d"),
-            },
-            key=f"editor_{selected_league}"
-        )
+            edited_slate = st.data_editor(
+                slate_df[editable_cols],
+                use_container_width=True,
+                hide_index=True,
+                disabled=["matchup", "status", "away_record", "home_record"],
+                column_config={
+                    "matchup": st.column_config.TextColumn("Matchup", width="medium"),
+                    "status": st.column_config.TextColumn("Kickoff", width="small"),
+                    "away_record": st.column_config.TextColumn("Away", width="small"),
+                    "home_record": st.column_config.TextColumn("Home", width="small"),
+                    "away_proj": st.column_config.NumberColumn("Away Proj", step=0.5, format="%.1f"),
+                    "home_proj": st.column_config.NumberColumn("Home Proj", step=0.5, format="%.1f"),
+                    "book_home_spread": st.column_config.NumberColumn("Book Home Line", step=0.5, format="%+.1f"),
+                    "home_spread_odds": st.column_config.NumberColumn("Home Odds", step=5, format="%+d"),
+                    "away_spread_odds": st.column_config.NumberColumn("Away Odds", step=5, format="%+d"),
+                    "book_total": st.column_config.NumberColumn("Book Total", step=0.5, format="%.1f"),
+                    "over_odds": st.column_config.NumberColumn("Over Odds", step=5, format="%+d"),
+                    "under_odds": st.column_config.NumberColumn("Under Odds", step=5, format="%+d"),
+                },
+                key=f"editor_{selected_league}"
+            )
 
-        for idx, row in edited_slate.iterrows():
-            active_games[idx]["away_proj"] = float(row["away_proj"])
-            active_games[idx]["home_proj"] = float(row["home_proj"])
-            active_games[idx]["book_home_spread"] = float(row["book_home_spread"])
-            active_games[idx]["book_away_spread"] = float(-row["book_home_spread"])
-            active_games[idx]["home_spread_odds"] = int(row["home_spread_odds"])
-            active_games[idx]["away_spread_odds"] = int(row["away_spread_odds"])
-            active_games[idx]["book_total"] = float(row["book_total"])
-            active_games[idx]["over_odds"] = int(row["over_odds"])
-            active_games[idx]["under_odds"] = int(row["under_odds"])
+            for idx, row in edited_slate.iterrows():
+                active_games[idx]["away_proj"] = float(row["away_proj"])
+                active_games[idx]["home_proj"] = float(row["home_proj"])
+                active_games[idx]["book_home_spread"] = float(row["book_home_spread"])
+                active_games[idx]["book_away_spread"] = float(-row["book_home_spread"])
+                active_games[idx]["home_spread_odds"] = int(row["home_spread_odds"])
+                active_games[idx]["away_spread_odds"] = int(row["away_spread_odds"])
+                active_games[idx]["book_total"] = float(row["book_total"])
+                active_games[idx]["over_odds"] = int(row["over_odds"])
+                active_games[idx]["under_odds"] = int(row["under_odds"])
+    else:
+        st.info("💡 **Master Overview Mode:** Displaying top +EV opportunities across all sports simultaneously. Switch to any specific sport in the sidebar to access individual line overrides and deep-dive histograms.")
 
     all_market_sims = []
     game_sim_map = {}
@@ -423,7 +434,7 @@ with tab_board:
     s3.metric("Prime Edge Plays", f"{len(prime_ev_plays)}", "Edge >= +3.0%")
     s4.metric("Top Slate EV %", f"{best_ev:+.2f}%", all_market_sims_sorted[0]["pick_label"] if all_market_sims_sorted else "N/A")
 
-    st.markdown('<div class="sec-header">⚡ TOP MATHEMATICAL EDGES — RANKED BY EXPECTED VALUE (+EV %)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-header">⚡ MASTER TOP EDGES — RANKED ACROSS ALL SPORTS BY EXPECTED VALUE (+EV %)</div>', unsafe_allow_html=True)
 
     f_col1, f_col2 = st.columns([2, 4])
     with f_col1:
@@ -442,6 +453,7 @@ with tab_board:
             signal = "PRIME +EV" if m["edge_pct"] >= 3.0 else ("LEAN +EV" if m["edge_pct"] > 0 else "PASS")
             top_table_rows.append({
                 "Log Bet": False,
+                "League": m["league"],
                 "Signal": signal,
                 "Matchup": m["short_matchup"],
                 "Kickoff": m["status"],
@@ -465,12 +477,13 @@ with tab_board:
             use_container_width=True,
             hide_index=True,
             disabled=[
-                "Signal", "Matchup", "Kickoff", "Bet Type", "Recommended Pick",
+                "League", "Signal", "Matchup", "Kickoff", "Bet Type", "Recommended Pick",
                 "Book Line", "Model Fair", "Odds", "Sim Cover %",
                 "Breakeven %", "Edge %", "EV %"
             ],
             column_config={
                 "Log Bet": st.column_config.CheckboxColumn("Ticket", width="small"),
+                "League": st.column_config.TextColumn("Sport", width="small"),
                 "Signal": st.column_config.TextColumn("Signal", width="small"),
                 "Matchup": st.column_config.TextColumn("Game", width="small"),
                 "Kickoff": st.column_config.TextColumn("Kickoff", width="small"),
@@ -494,7 +507,7 @@ with tab_board:
                 for idx in selected_indices:
                     orig_row = top_df.loc[idx]
                     db.log_bet(
-                        league=selected_league,
+                        league=str(orig_row["League"]),
                         matchup=str(orig_row["Full Matchup"]),
                         bet_type=str(orig_row["Bet Type"]),
                         pick=str(orig_row["Recommended Pick"]),
@@ -508,149 +521,150 @@ with tab_board:
                 st.success(f"Locked in {len(selected_indices)} ticket(s) to SQLite ledger.")
                 st.rerun()
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="sec-header">🎯 MATCHUP DEEP DIVE — 4-WAY MARKET PRICING & SCORE DISTRIBUTIONS</div>', unsafe_allow_html=True)
+    if selected_league != "ALL SPORTS":
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="sec-header">🎯 MATCHUP DEEP DIVE — 4-WAY MARKET PRICING & SCORE DISTRIBUTIONS</div>', unsafe_allow_html=True)
 
-    matchup_options = [g["matchup"] for g in active_games]
-    selected_matchup = st.selectbox("SELECT MATCHUP TO INSPECT", matchup_options, label_visibility="collapsed")
+        matchup_options = [g["matchup"] for g in active_games]
+        selected_matchup = st.selectbox("SELECT MATCHUP TO INSPECT", matchup_options, label_visibility="collapsed")
 
-    selected_game = next(g for g in active_games if g["matchup"] == selected_matchup)
-    four_res = game_sim_map[selected_matchup]
+        selected_game = next(g for g in active_games if g["matchup"] == selected_matchup)
+        four_res = game_sim_map[selected_matchup]
 
-    fair_home_spread = -(selected_game["home_proj"] - selected_game["away_proj"])
-    fair_total = selected_game["home_proj"] + selected_game["away_proj"]
+        fair_home_spread = -(selected_game["home_proj"] - selected_game["away_proj"])
+        fair_total = selected_game["home_proj"] + selected_game["away_proj"]
 
-    st.markdown(f"""
-    <div class="scoreboard-banner">
-        <div class="sb-team-block">
-            <span class="sb-team-rec">AWAY • {selected_game['away_record']}</span>
-            <span class="sb-team-name">{selected_game['away_team']}</span>
-        </div>
-        <div class="sb-proj-box">
-            <div class="sb-proj-label">MODEL PROJECTED SCORE</div>
-            <div class="sb-proj-val">{selected_game['away_abbr']} {selected_game['away_proj']:.1f}  —  {selected_game['home_abbr']} {selected_game['home_proj']:.1f}</div>
-        </div>
-        <div class="sb-proj-box">
-            <div class="sb-proj-label">MODEL FAIR LINE / TOTAL</div>
-            <div class="sb-proj-val">{selected_game['home_abbr']} {fair_home_spread:+.1f}  |  O/U {fair_total:.1f}</div>
-        </div>
-        <div class="sb-team-block" style="text-align: right;">
-            <span class="sb-team-rec">HOME • {selected_game['home_record']} • {selected_game['status']}</span>
-            <span class="sb-team-name">{selected_game['home_team']}</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    card_cols = st.columns(4)
-    for col, r in zip(card_cols, four_res):
-        is_ev = r["ev_pct"] > 0
-        card_class = "market-card market-card-ev" if is_ev else "market-card"
-        badge_class = "mc-badge-pos" if is_ev else "mc-badge-neg"
-        badge_text = f"{r['ev_pct']:+.2f}% EV" if is_ev else f"{r['ev_pct']:+.1f}% EV"
-        fair_str = f"{r['model_fair_line']:+.1f}" if "Spread" in r["bet_type"] else f"{r['model_fair_line']:.1f}"
-
-        with col:
-            st.markdown(f"""
-            <div class="{card_class}">
-                <div class="mc-top">
-                    <span class="mc-type">{r['bet_type']}</span>
-                    <span class="{badge_class}">{badge_text}</span>
-                </div>
-                <div class="mc-pick-row">
-                    <span class="mc-pick-name">{r['pick_label']}</span>
-                    <span class="mc-odds">{int(r['book_odds']):+d}</span>
-                </div>
-                <div class="mc-grid">
-                    <div>
-                        <div class="mc-stat-label">Sim Cover %</div>
-                        <div class="mc-stat-val">{r['win_prob_pct']:.1f}%</div>
-                    </div>
-                    <div>
-                        <div class="mc-stat-label">Model Fair</div>
-                        <div class="mc-stat-val">{fair_str}</div>
-                    </div>
-                    <div>
-                        <div class="mc-stat-label">Edge vs Vig</div>
-                        <div class="mc-stat-val" style="color: {'#10B981' if r['edge_pct'] > 0 else '#9CA3AF'};">{r['edge_pct']:+.2f}%</div>
-                    </div>
-                    <div>
-                        <div class="mc-stat-label">10k Sim Split</div>
-                        <div class="mc-stat-val">{r['wins']}W-{r['losses']}L</div>
-                    </div>
-                </div>
-                <div class="mc-footer">
-                    <span>{int(kelly_fraction*100)}% Kelly Sizing</span>
-                    <span class="mc-stake">${r['recommended_stake']:,.2f}</span>
-                </div>
+        st.markdown(f"""
+        <div class="scoreboard-banner">
+            <div class="sb-team-block">
+                <span class="sb-team-rec">AWAY • {selected_game['away_record']}</span>
+                <span class="sb-team-name">{selected_game['away_team']}</span>
             </div>
-            """, unsafe_allow_html=True)
+            <div class="sb-proj-box">
+                <div class="sb-proj-label">MODEL PROJECTED SCORE</div>
+                <div class="sb-proj-val">{selected_game['away_abbr']} {selected_game['away_proj']:.1f}  —  {selected_game['home_abbr']} {selected_game['home_proj']:.1f}</div>
+            </div>
+            <div class="sb-proj-box">
+                <div class="sb-proj-label">MODEL FAIR LINE / TOTAL</div>
+                <div class="sb-proj-val">{selected_game['home_abbr']} {fair_home_spread:+.1f}  |  O/U {fair_total:.1f}</div>
+            </div>
+            <div class="sb-team-block" style="text-align: right;">
+                <span class="sb-team-rec">HOME • {selected_game['home_record']} • {selected_game['status']}</span>
+                <span class="sb-team-name">{selected_game['home_team']}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+        card_cols = st.columns(4)
+        for col, r in zip(card_cols, four_res):
+            is_ev = r["ev_pct"] > 0
+            card_class = "market-card market-card-ev" if is_ev else "market-card"
+            badge_class = "mc-badge-pos" if is_ev else "mc-badge-neg"
+            badge_text = f"{r['ev_pct']:+.2f}% EV" if is_ev else f"{r['ev_pct']:+.1f}% EV"
+            fair_str = f"{r['model_fair_line']:+.1f}" if "Spread" in r["bet_type"] else f"{r['model_fair_line']:.1f}"
 
-    hist_col1, hist_col2 = st.columns(2)
-    home_spread_res = next(r for r in four_res if r["bet_type"] == "Home Spread")
-    over_res = next(r for r in four_res if r["bet_type"] == "Over")
+            with col:
+                st.markdown(f"""
+                <div class="{card_class}">
+                    <div class="mc-top">
+                        <span class="mc-type">{r['bet_type']}</span>
+                        <span class="{badge_class}">{badge_text}</span>
+                    </div>
+                    <div class="mc-pick-row">
+                        <span class="mc-pick-name">{r['pick_label']}</span>
+                        <span class="mc-odds">{int(r['book_odds']):+d}</span>
+                    </div>
+                    <div class="mc-grid">
+                        <div>
+                            <div class="mc-stat-label">Sim Cover %</div>
+                            <div class="mc-stat-val">{r['win_prob_pct']:.1f}%</div>
+                        </div>
+                        <div>
+                            <div class="mc-stat-label">Model Fair</div>
+                            <div class="mc-stat-val">{fair_str}</div>
+                        </div>
+                        <div>
+                            <div class="mc-stat-label">Edge vs Vig</div>
+                            <div class="mc-stat-val" style="color: {'#10B981' if r['edge_pct'] > 0 else '#9CA3AF'};">{r['edge_pct']:+.2f}%</div>
+                        </div>
+                        <div>
+                            <div class="mc-stat-label">10k Sim Split</div>
+                            <div class="mc-stat-val">{r['wins']}W-{r['losses']}L</div>
+                        </div>
+                    </div>
+                    <div class="mc-footer">
+                        <span>{int(kelly_fraction*100)}% Kelly Sizing</span>
+                        <span class="mc-stake">${r['recommended_stake']:,.2f}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
-    with hist_col1:
-        fig_spread = go.Figure()
-        fig_spread.add_trace(go.Histogram(
-            x=home_spread_res["dist_data"],
-            nbinsx=42,
-            marker=dict(color="#10B981", line=dict(color="#0B0E14", width=1)),
-            opacity=0.85,
-            name="Home Margin"
-        ))
-        target_margin = -float(selected_game["book_home_spread"])
-        fig_spread.add_vline(
-            x=target_margin,
-            line_width=2.5,
-            line_dash="dash",
-            line_color="#F59E0B",
-            annotation_text=f"Book Line: {selected_game['home_abbr']} {selected_game['book_home_spread']:+.1f}",
-            annotation_font=dict(family="JetBrains Mono", size=12, color="#F59E0B"),
-            annotation_position="top right"
-        )
-        fig_spread.update_layout(
-            title=dict(text=f"SPREAD DISTRIBUTION // {selected_game['home_abbr']} MARGIN (10,000 SIMS)", font=dict(size=13, color="#9CA3AF")),
-            xaxis=dict(title=f"{selected_game['home_abbr']} Margin of Victory", gridcolor="#1E2532", zerolinecolor="#374151"),
-            yaxis=dict(title="Frequency", gridcolor="#1E2532"),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="#131822",
-            font=dict(family="Inter", color="#9CA3AF"),
-            height=330,
-            margin=dict(l=15, r=15, t=45, b=15)
-        )
-        st.plotly_chart(fig_spread, use_container_width=True)
+        st.markdown("<br>", unsafe_allow_html=True)
 
-    with hist_col2:
-        fig_total = go.Figure()
-        fig_total.add_trace(go.Histogram(
-            x=over_res["dist_data"],
-            nbinsx=42,
-            marker=dict(color="#3B82F6", line=dict(color="#0B0E14", width=1)),
-            opacity=0.85,
-            name="Total Points"
-        ))
-        fig_total.add_vline(
-            x=float(selected_game["book_total"]),
-            line_width=2.5,
-            line_dash="dash",
-            line_color="#F59E0B",
-            annotation_text=f"O/U Line: {selected_game['book_total']:.1f}",
-            annotation_font=dict(family="JetBrains Mono", size=12, color="#F59E0B"),
-            annotation_position="top right"
-        )
-        fig_total.update_layout(
-            title=dict(text=f"TOTAL POINTS DISTRIBUTION // {selected_game['short_matchup']} (10,000 SIMS)", font=dict(size=13, color="#9CA3AF")),
-            xaxis=dict(title="Combined Total Points", gridcolor="#1E2532"),
-            yaxis=dict(title="Frequency", gridcolor="#1E2532"),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="#131822",
-            font=dict(family="Inter", color="#9CA3AF"),
-            height=330,
-            margin=dict(l=15, r=15, t=45, b=15)
-        )
-        st.plotly_chart(fig_total, use_container_width=True)
+        hist_col1, hist_col2 = st.columns(2)
+        home_spread_res = next(r for r in four_res if r["bet_type"] == "Home Spread")
+        over_res = next(r for r in four_res if r["bet_type"] == "Over")
+
+        with hist_col1:
+            fig_spread = go.Figure()
+            fig_spread.add_trace(go.Histogram(
+                x=home_spread_res["dist_data"],
+                nbinsx=42,
+                marker=dict(color="#10B981", line=dict(color="#0B0E14", width=1)),
+                opacity=0.85,
+                name="Home Margin"
+            ))
+            target_margin = -float(selected_game["book_home_spread"])
+            fig_spread.add_vline(
+                x=target_margin,
+                line_width=2.5,
+                line_dash="dash",
+                line_color="#F59E0B",
+                annotation_text=f"Book Line: {selected_game['home_abbr']} {selected_game['book_home_spread']:+.1f}",
+                annotation_font=dict(family="JetBrains Mono", size=12, color="#F59E0B"),
+                annotation_position="top right"
+            )
+            fig_spread.update_layout(
+                title=dict(text=f"SPREAD DISTRIBUTION // {selected_game['home_abbr']} MARGIN (10,000 SIMS)", font=dict(size=13, color="#9CA3AF")),
+                xaxis=dict(title=f"{selected_game['home_abbr']} Margin of Victory", gridcolor="#1E2532", zerolinecolor="#374151"),
+                yaxis=dict(title="Frequency", gridcolor="#1E2532"),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="#131822",
+                font=dict(family="Inter", color="#9CA3AF"),
+                height=330,
+                margin=dict(l=15, r=15, t=45, b=15)
+            )
+            st.plotly_chart(fig_spread, use_container_width=True)
+
+        with hist_col2:
+            fig_total = go.Figure()
+            fig_total.add_trace(go.Histogram(
+                x=over_res["dist_data"],
+                nbinsx=42,
+                marker=dict(color="#3B82F6", line=dict(color="#0B0E14", width=1)),
+                opacity=0.85,
+                name="Total Points"
+            ))
+            fig_total.add_vline(
+                x=float(selected_game["book_total"]),
+                line_width=2.5,
+                line_dash="dash",
+                line_color="#F59E0B",
+                annotation_text=f"O/U Line: {selected_game['book_total']:.1f}",
+                annotation_font=dict(family="JetBrains Mono", size=12, color="#F59E0B"),
+                annotation_position="top right"
+            )
+            fig_total.update_layout(
+                title=dict(text=f"TOTAL POINTS DISTRIBUTION // {selected_game['short_matchup']} (10,000 SIMS)", font=dict(size=13, color="#9CA3AF")),
+                xaxis=dict(title="Combined Total Points", gridcolor="#1E2532"),
+                yaxis=dict(title="Frequency", gridcolor="#1E2532"),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="#131822",
+                font=dict(family="Inter", color="#9CA3AF"),
+                height=330,
+                margin=dict(l=15, r=15, t=45, b=15)
+            )
+            st.plotly_chart(fig_total, use_container_width=True)
 
 # =========================================================
 # TAB 2: PORTFOLIO & ROI ANALYTICS
@@ -707,7 +721,7 @@ with tab_backtest:
 
     bt_col1, bt_col2, bt_col3, bt_col4 = st.columns(4)
     with bt_col1:
-        bt_league = st.selectbox("Backtest League", ["NFL", "CFB", "NCAAB"], key="bt_league")
+        bt_league = st.selectbox("Backtest League", ["ALL SPORTS", "NFL", "CFB", "NCAAB"], key="bt_league")
     with bt_col2:
         bt_start_week = st.number_input("Start Week", min_value=1, max_value=15, value=1, step=1)
     with bt_col3:
