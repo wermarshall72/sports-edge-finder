@@ -717,15 +717,17 @@ with tab_tracker:
 # =========================================================
 with tab_backtest:
     st.markdown('<div class="sec-header">📊 MULTI-WEEK HISTORICAL BACKTESTING ENGINE</div>', unsafe_allow_html=True)
-    st.caption("Simulate how your $1,000 starting bankroll would have compounded across past weeks using our Monte Carlo model and Quarter-Kelly sizing.")
+    st.caption("Simulate how your $1,000 starting bankroll would have compounded across past seasons using our Monte Carlo model and Quarter-Kelly sizing.")
 
-    bt_col1, bt_col2, bt_col3, bt_col4 = st.columns(4)
+    bt_col0, bt_col1, bt_col2, bt_col3, bt_col4 = st.columns(5)
+    with bt_col0:
+        bt_year = st.selectbox("Season Year", [2025, 2026], index=0, key="bt_year")
     with bt_col1:
         bt_league = st.selectbox("Backtest League", ["ALL SPORTS", "NFL", "CFB", "NCAAB"], key="bt_league")
     with bt_col2:
         bt_start_week = st.number_input("Start Week", min_value=1, max_value=15, value=1, step=1)
     with bt_col3:
-        bt_end_week = st.number_input("End Week", min_value=1, max_value=16, value=8, step=1)
+        bt_end_week = st.number_input("End Week", min_value=1, max_value=16, value=15, step=1)
     with bt_col4:
         st.write("")
         st.write("")
@@ -735,11 +737,12 @@ with tab_backtest:
         if bt_start_week > bt_end_week:
             st.error("Start week cannot be greater than end week.")
         else:
-            with st.spinner(f"Simulating weeks {bt_start_week} through {bt_end_week} for {bt_league}..."):
+            with st.spinner(f"Simulating {bt_year} season (Weeks {bt_start_week}–{bt_end_week}) for {bt_league}..."):
                 bt_results = btest.run_historical_backtest(
                     league=bt_league,
-                    start_week=bt_start_week,
-                    end_week=bt_end_week,
+                    season_year=int(bt_year),
+                    start_week=int(bt_start_week),
+                    end_week=int(bt_end_week),
                     starting_bankroll=starting_bankroll,
                     kelly_fraction=kelly_fraction
                 )
@@ -747,8 +750,8 @@ with tab_backtest:
             st.markdown("<br>", unsafe_allow_html=True)
             
             bm1, bm2, bm3, bm4 = st.columns(4)
-            bm1.metric("Initial Bankroll", f"${starting_bankroll:,.2f}", f"Week {bt_start_week} Start")
-            bm2.metric("Ending Bankroll", f"${bt_results['final_bankroll']:,.2f}", f"Week {bt_end_week} End")
+            bm1.metric("Initial Bankroll", f"${starting_bankroll:,.2f}", f"{bt_year} Start")
+            bm2.metric("Ending Bankroll", f"${bt_results['final_bankroll']:,.2f}", f"{bt_year} End")
             bm3.metric("Net Backtest P&L", f"${bt_results['total_profit']:+,.2f}", f"Total Profit")
             
             total_bt_staked = sum(w["Volume Staked"] for w in bt_results["weekly_summary"])
@@ -781,7 +784,7 @@ with tab_backtest:
                     ))
                     fig_bt.add_hline(y=starting_bankroll, line_dash="dot", line_color="#6B7280", annotation_text="Starting Bankroll")
                     fig_bt.update_layout(
-                        title=dict(text=f"BACKTEST EQUITY CURVE // WEEKS {bt_start_week}–{bt_end_week}", font=dict(size=13, color="#9CA3AF")),
+                        title=dict(text=f"BACKTEST EQUITY CURVE // {bt_year} SEASON (WEEKS {bt_start_week}–{bt_end_week})", font=dict(size=13, color="#9CA3AF")),
                         xaxis=dict(title="Season Week", gridcolor="#1E2532"),
                         yaxis=dict(title="Bankroll ($)", gridcolor="#1E2532"),
                         paper_bgcolor="rgba(0,0,0,0)",

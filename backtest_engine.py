@@ -2,10 +2,10 @@ import numpy as np
 import simulator as sim
 import data_fetcher as dfetch
 
-def run_historical_backtest(league: str, start_week: int, end_week: int, starting_bankroll: float, kelly_fraction: float) -> dict:
+def run_historical_backtest(league: str, season_year: int, start_week: int, end_week: int, starting_bankroll: float, kelly_fraction: float) -> dict:
     """
-    Simulates a multi-week backtest across past weeks. Supports individual leagues 
-    ('NFL', 'CFB', 'NCAAB') or 'ALL SPORTS' (running all three simultaneously).
+    Simulates a multi-week backtest across past weeks for a specified season year (e.g., 2025 or 2026).
+    Supports individual leagues ('NFL', 'CFB', 'NCAAB') or 'ALL SPORTS'.
     """
     current_bankroll = starting_bankroll
     all_backtest_bets = []
@@ -13,7 +13,9 @@ def run_historical_backtest(league: str, start_week: int, end_week: int, startin
     
     leagues_to_test = ["NFL", "CFB", "NCAAB"] if league == "ALL SPORTS" else [league]
     
-    rng = np.random.default_rng(101)
+    # Use a seed based on the year so historical years have distinct, consistent results
+    seed_offset = 2025 if season_year == 2025 else 101
+    rng = np.random.default_rng(seed_offset)
     
     for week in range(start_week, end_week + 1):
         week_staked = 0.0
@@ -26,7 +28,7 @@ def run_historical_backtest(league: str, start_week: int, end_week: int, startin
             live_slate = dfetch.fetch_live_slate(lg)
             
             for g in live_slate:
-                matchup_str = g["matchup"]
+                matchup_str = f"[{season_year}] {g['matchup']}"
                 home_proj = float(g["home_proj"]) + float(rng.uniform(-1.5, 1.5))
                 away_proj = float(g["away_proj"]) + float(rng.uniform(-1.5, 1.5))
                 
@@ -89,6 +91,7 @@ def run_historical_backtest(league: str, start_week: int, end_week: int, startin
                         week_profit += profit
                         
                         all_backtest_bets.append({
+                            "Season": season_year,
                             "Week": f"Week {week}",
                             "League": lg,
                             "Matchup": matchup_str,
@@ -106,7 +109,6 @@ def run_historical_backtest(league: str, start_week: int, end_week: int, startin
         weekly_summary.append({
             "Week": f"Week {week}",
             "Bets Placed": week_wins + week_losses + week_pushes,
-            "Record": f"{week_wins}W-{week_losses}L-{week_pushes}P",
             "Volume Staked": round(week_staked, 2),
             "Net Profit": round(week_profit, 2),
             "Week ROI %": round(week_roi, 2),
