@@ -18,25 +18,38 @@ def parse_win_pct(record_str: str) -> float:
     return 0.500
 
 
-def extract_team_ppg(competitor: dict, default_ppg: float) -> float:
-    """Extracts a team's season points-per-game or estimates it from ESPN competitor statistics."""
+def extract_advanced_efficiency(competitor: dict) -> dict:
+    """
+    Extracts advanced drive-level efficiency metrics from ESPN competitor statistics 
+    (Yards Per Play, Red Zone Conversion Rate, Success Rate indicators).
+    """
+    metrics = {
+        "yards_per_play": 5.5,  # Baseline league average
+        "red_zone_pct": 0.60,   # Baseline red zone touchdown efficiency
+        "explosive_rate": 0.12  # Explosive play frequency
+    }
+    
     for stat in competitor.get("statistics", []):
         name = stat.get("name", "").lower()
-        if "points" in name or "scoring" in name or "avgpoints" in name:
-            try:
-                val = float(stat.get("displayValue", default_ppg))
-                if 7.0 <= val <= 60.0:
-                    return val
-            except (ValueError, TypeError):
-                pass
-    return default_ppg
+        val_str = stat.get("displayValue", "0")
+        try:
+            val = float(re.findall(r"[\d\.]+", val_str)[0])
+            if "yardsperplay" in name or "ypg" in name or "yards/play" in name:
+                if 3.0 <= val <= 8.5:
+                    metrics["yards_per_play"] = val
+            elif "redzone" in name or "rz" in name:
+                if val > 1.0: # If given as percentage like 85.0
+                    val = val / 100.0
+                if 0.3 <= val <= 1.0:
+                    metrics["red_zone_pct"] = val
+        except (ValueError, IndexError, TypeError):
+            pass
+            
+    return metrics
 
 
 def parse_home_spread(details_str: str, home_abbr: str, away_abbr: str, default_spread: float) -> float:
-    """
-    Parses ESPN's spread string (e.g., 'BUF -3.5' or 'KC -2.5' or 'EVEN')
-    and always returns the spread from the HOME team's perspective.
-    """
+    """Parses ESPN's spread string from the HOME team's perspective."""
     if not details_str or "EVEN" in str(details_str).upper() or "PK" in str(details_str).upper():
         return 0.0
 
@@ -56,12 +69,12 @@ def parse_home_spread(details_str: str, home_abbr: str, away_abbr: str, default_
 
 def fetch_live_slate(league: str = "NFL") -> list:
     """
-    Pulls the current week's NFL or CFB matchups, live sportsbook spreads/totals,
-    and projects team scores automatically using 2026 team performance metrics.
+    Pulls live matchups, sportsbook odds, and integrates advanced drive-level 
+    efficiency metrics (Yards per Play, Red Zone conversion) into score projections.
     """
     url = ESPN_URLS.get(league, ESPN_URLS["NFL"])
     default_total = 45.5 if league == "NFL" else 53.5
-    hfa = 2.0 if league == "NFL" else 3.0  # Home Field Advantage in points
+    hfa = 2.0 if league == "NFL" else 3.0
 
     try:
         resp = requests.get(url, timeout=8)
@@ -80,7 +93,6 @@ def fetch_live_slate(league: str = "NFL") -> list:
             continue
         comp = comps[0]
 
-        # Find Home and Away teams
         competitors = comp.get("competitors", [])
         home_comp = next((c for c in competitors if c.get("homeAway") == "home"), None)
         away_comp = next((c for c in competitors if c.get("homeAway") == "away"), None)
@@ -92,16 +104,17 @@ def fetch_live_slate(league: str = "NFL") -> list:
         home_abbr = home_comp.get("team", {}).get("abbreviation", "HOM")
         away_abbr = away_comp.get("team", {}).get("abbreviation", "AWY")
 
-        # Extract overall W-L records
-        home_rec_list = home_comp.get("records", [])
-        away_rec_list = away_comp.get("records", [])
-        home_rec = home_rec_list[0].get("summary", "0-0") if home_rec_list else "0-0"
-        away_rec = away_rec_list[0].get("summary", "0-0") if away_rec_list else "0-0"
+        home_rec = home_comp.get("records", [{}])[0].get("summary", "0-0")
+        away_rec = away_comp.get("records", [{}])[0].get("summary", "0-0")
 
         home_wp = parse_win_pct(home_rec)
         away_wp = parse_win_pct(away_rec)
 
-        # Extract live sportsbook odds from the feed
+        # Extract Advanced Efficiency Stats
+        home_eff = extract_advanced_efficiency(home_comp)
+        away_eff = extract_advanced_efficiency(away_comp)
+
+        # Extract live sportsbook odds
         odds_list = comp.get("odds", [])
         book_home_spread = None
         book_total = None
@@ -122,7 +135,6 @@ def fetch_live_slate(league: str = "NFL") -> list:
             if details:
                 book_home_spread = parse_home_spread(details, home_abbr, away_abbr, 0.0)
 
-            # Check if specific juice/vig is listed (e.g., -115 / -105)
             try:
                 ps = odds_obj.get("pointSpread", {})
                 h_close = ps.get("home", {}).get("close", {}).get("odds")
@@ -134,31 +146,30 @@ def fetch_live_slate(league: str = "NFL") -> list:
             except Exception:
                 pass
 
-        # Fallback if a game doesn't have an active line posted yet
         if book_total is None:
             book_total = default_total
 
-        # Build independent statistical power-rating projection
-        # Combines team win-rate differential, home-field advantage, and scoring environment
-        rating_scale = 11.0 if league == "NFL" else 18.5
-        stat_fair_margin = ((home_wp - away_wp) * rating_scale) + hfa
+        # --- ADVANCED EFFICIENCY BLEND MODEL ---
+        # Factor Yards Per Play differential and Red Zone efficiency into power ratings
+        ypp_diff = home_eff["yards_per_play"] - away_eff["yards_per_play"]
+        rz_diff = home_eff["red_zone_pct"] - away_eff["red_zone_pct"]
+        
+        efficiency_margin_boost = (ypp_diff * 3.2) + (rz_diff * 4.0)
+        
+        rating_scale = 10.0 if league == "NFL" else 17.0
+        stat_fair_margin = ((home_wp - away_wp) * rating_scale) + hfa + efficiency_margin_boost
 
         if book_home_spread is None:
             book_home_spread = round(-stat_fair_margin * 2.0) / 2.0
 
-        # Blend market anchors with our independent statistical efficiency rating
-        # so the model reflects real team strength while hunting for value numbers
         market_implied_margin = -book_home_spread
-        model_expected_margin = (0.55 * stat_fair_margin) + (0.45 * market_implied_margin)
+        model_expected_margin = (0.50 * stat_fair_margin) + (0.50 * market_implied_margin)
 
-        # Calculate team PPG or baseline scoring total
+        # Efficiency-adjusted scoring totals
         base_half = book_total / 2.0
-        h_ppg = extract_team_ppg(home_comp, base_half)
-        a_ppg = extract_team_ppg(away_comp, base_half)
-        stat_total = (h_ppg + a_ppg) if (h_ppg != base_half or a_ppg != base_half) else (
-            book_total + ((home_wp + away_wp - 1.0) * 4.5)
-        )
-        model_expected_total = (0.65 * book_total) + (0.35 * stat_total)
+        eff_total_modifier = ((home_eff["yards_per_play"] + away_eff["yards_per_play"] - 11.0) * 2.5)
+        stat_total = book_total + eff_total_modifier
+        model_expected_total = (0.55 * book_total) + (0.45 * stat_total)
 
         home_proj = round((model_expected_total + model_expected_margin) / 2.0, 1)
         away_proj = round((model_expected_total - model_expected_margin) / 2.0, 1)
@@ -192,7 +203,6 @@ def fetch_live_slate(league: str = "NFL") -> list:
 
 
 def get_fallback_slate(league: str = "NFL") -> list:
-    """Provides a fallback slate if you ever run the app offline without Wi-Fi."""
     if league == "NFL":
         return [
             {
@@ -202,15 +212,6 @@ def get_fallback_slate(league: str = "NFL") -> list:
                 "away_abbr": "KC", "home_abbr": "BUF", "away_record": "6-1", "home_record": "5-2",
                 "away_proj": 23.5, "home_proj": 27.0, "book_home_spread": -2.5, "book_away_spread": 2.5,
                 "book_total": 48.5, "home_spread_odds": -110, "away_spread_odds": -110,
-                "over_odds": -110, "under_odds": -110
-            },
-            {
-                "game_id": "nfl_2", "league": "NFL",
-                "matchup": "Baltimore Ravens @ Cincinnati Bengals", "short_matchup": "BAL @ CIN",
-                "status": "Sun 12:00 PM", "away_team": "Baltimore Ravens", "home_team": "Cincinnati Bengals",
-                "away_abbr": "BAL", "home_abbr": "CIN", "away_record": "5-2", "home_record": "4-3",
-                "away_proj": 27.5, "home_proj": 24.0, "book_home_spread": 2.5, "book_away_spread": -2.5,
-                "book_total": 50.5, "home_spread_odds": -110, "away_spread_odds": -110,
                 "over_odds": -110, "under_odds": -110
             }
         ]
@@ -226,14 +227,3 @@ def get_fallback_slate(league: str = "NFL") -> list:
                 "over_odds": -110, "under_odds": -110
             }
         ]
-
-
-if __name__ == "__main__":
-    nfl_games = fetch_live_slate("NFL")
-    cfb_games = fetch_live_slate("CFB")
-    print(f"✅ Automatically fetched {len(nfl_games)} live NFL games and {len(cfb_games)} live CFB games!")
-    if nfl_games:
-        g = nfl_games[0]
-        print(f"   Sample NFL Game : {g['matchup']} ({g['status']})")
-        print(f"   Model Projection: {g['away_abbr']} {g['away_proj']} - {g['home_abbr']} {g['home_proj']}")
-        print(f"   Live Line       : {g['home_abbr']} {g['book_home_spread']:+.1f} | O/U {g['book_total']}")
