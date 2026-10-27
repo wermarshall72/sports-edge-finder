@@ -1,0 +1,24 @@
+[project]
+name = "sports-edge-finder"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Jack Marshall", email = "jackmarshall954@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.4",
+    "pandas>=3.1.0",
+    "plotly>=7.1.0",
+    "requests>=2.34.2",
+    "scipy>=1.18.1",
+    "streamlit>=1.66.1",
+]
+
+[project.scripts]
+sports-edge-finder = "sports_edge_finder:main"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
