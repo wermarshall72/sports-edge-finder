@@ -2,10 +2,10 @@ import numpy as np
 import simulator as sim
 import data_fetcher as dfetch
 
-def run_historical_backtest(league: str, season_year: int, start_week: int, end_week: int, starting_bankroll: float, kelly_fraction: float) -> dict:
+def run_historical_backtest(league: str, season_year: int, start_week: int, end_week: int, starting_bankroll: float, kelly_fraction: float, fixed_unit_amount: float = None) -> dict:
     """
-    Simulates a multi-week backtest across past weeks for a specified season year (e.g., 2025 or 2026).
-    Supports individual leagues ('NFL', 'CFB', 'NCAAB') or 'ALL SPORTS'.
+    Simulates a multi-week backtest across past seasons (2023, 2024, 2025, 2026). Supports Fixed \$ Unit sizing 
+    or Kelly percentage sizing.
     """
     current_bankroll = starting_bankroll
     all_backtest_bets = []
@@ -13,8 +13,9 @@ def run_historical_backtest(league: str, season_year: int, start_week: int, end_
     
     leagues_to_test = ["NFL", "CFB", "NCAAB"] if league == "ALL SPORTS" else [league]
     
-    # Use a seed based on the year so historical years have distinct, consistent results
-    seed_offset = 2025 if season_year == 2025 else 101
+    # Assign distinct seed offsets per historical year
+    seed_offsets = {2023: 2023, 2024: 2024, 2025: 2025, 2026: 101}
+    seed_offset = seed_offsets.get(season_year, 101)
     rng = np.random.default_rng(seed_offset)
     
     for week in range(start_week, end_week + 1):
@@ -60,9 +61,12 @@ def run_historical_backtest(league: str, season_year: int, start_week: int, end_
                     )
                     
                     if res["edge_pct"] >= 1.5:
-                        stake = res["recommended_stake"]
-                        if stake < 5.0:
-                            stake = 5.0
+                        if fixed_unit_amount is not None:
+                            stake = float(fixed_unit_amount)
+                        else:
+                            stake = res["recommended_stake"]
+                            if stake < 5.0:
+                                stake = 5.0
                             
                         if b_type == "Home Spread":
                             cover_val = actual_margin + b_line

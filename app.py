@@ -306,7 +306,7 @@ with st.sidebar:
     st.caption(f"Open Risk Exposure: **${pending_exposure:,.2f}**")
 
     st.divider()
-    st.markdown("##### RISK PARAMETERS")
+    st.markdown("##### RISK & UNIT PARAMETERS")
     new_start_br = st.number_input(
         "Starting Bankroll ($)",
         min_value=50.0,
@@ -318,15 +318,21 @@ with st.sidebar:
         db.set_starting_bankroll(new_start_br)
         st.rerun()
 
-    kelly_fraction = st.slider(
-        "Kelly Multiplier",
-        min_value=0.10,
-        max_value=1.00,
-        value=0.25,
-        step=0.05,
-        help="0.25x (Quarter Kelly) is standard institutional sizing."
-    )
-    st.caption(f"Sizing Engine: **{int(kelly_fraction * 100)}% Kelly** on **${current_bankroll:,.2f}**")
+    sizing_mode = st.radio("Sizing Method", ["Fixed $ Unit", "Bankroll % (Kelly)"], index=0)
+
+    if sizing_mode == "Fixed $ Unit":
+        fixed_unit_amount = st.number_input("Unit Size ($)", min_value=1.0, max_value=10000.0, value=5.0, step=1.0)
+        kelly_fraction = 0.25
+    else:
+        fixed_unit_amount = None
+        kelly_fraction = st.slider(
+            "Kelly Multiplier",
+            min_value=0.10,
+            max_value=1.00,
+            value=0.25,
+            step=0.05,
+            help="0.25x (Quarter Kelly) is standard institutional sizing."
+        )
 
 if selected_league == "ALL SPORTS":
     leagues_to_load = ["NFL", "CFB", "NCAAB"]
@@ -420,6 +426,13 @@ with tab_board:
             bankroll=current_bankroll,
             kelly_fraction=kelly_fraction
         )
+        if fixed_unit_amount is not None:
+            for m in four_markets:
+                if m["edge_pct"] > 0:
+                    m["recommended_stake"] = float(fixed_unit_amount)
+                else:
+                    m["recommended_stake"] = 0.0
+
         game_sim_map[g["matchup"]] = four_markets
         all_market_sims.extend(four_markets)
 
@@ -449,7 +462,7 @@ with tab_board:
     else:
         top_table_rows = []
         for m in filtered_sims:
-            default_stake = m["recommended_stake"] if m["recommended_stake"] > 0 else 25.0
+            default_stake = m["recommended_stake"] if m["recommended_stake"] > 0 else (fixed_unit_amount if fixed_unit_amount else 25.0)
             signal = "PRIME +EV" if m["edge_pct"] >= 3.0 else ("LEAN +EV" if m["edge_pct"] > 0 else "PASS")
             top_table_rows.append({
                 "Log Bet": False,
@@ -496,7 +509,7 @@ with tab_board:
                 "Breakeven %": st.column_config.NumberColumn("Implied", format="%.1f%%"),
                 "Edge %": st.column_config.NumberColumn("Edge", format="%+.2f%%"),
                 "EV %": st.column_config.ProgressColumn("Expected Value", format="%+.2f%%", min_value=-5.0, max_value=15.0),
-                "Stake ($)": st.column_config.NumberColumn("Stake ($)", min_value=1.0, step=5.0, format="$%.2f")
+                "Stake ($)": st.column_config.NumberColumn("Stake ($)", min_value=1.0, step=1.0, format="$%.2f")
             },
             key=f"top_ev_table_{selected_league}"
         )
@@ -557,6 +570,9 @@ with tab_board:
 
         card_cols = st.columns(4)
         for col, r in zip(card_cols, four_res):
+            if fixed_unit_amount is not None and r["ev_pct"] > 0:
+                r["recommended_stake"] = float(fixed_unit_amount)
+
             is_ev = r["ev_pct"] > 0
             card_class = "market-card market-card-ev" if is_ev else "market-card"
             badge_class = "mc-badge-pos" if is_ev else "mc-badge-neg"
@@ -593,7 +609,7 @@ with tab_board:
                         </div>
                     </div>
                     <div class="mc-footer">
-                        <span>{int(kelly_fraction*100)}% Kelly Sizing</span>
+                        <span>{"Fixed Unit" if fixed_unit_amount else f"{int(kelly_fraction*100)}% Kelly"}</span>
                         <span class="mc-stake">${r['recommended_stake']:,.2f}</span>
                     </div>
                 </div>
@@ -662,7 +678,7 @@ with tab_board:
                 plot_bgcolor="#131822",
                 font=dict(family="Inter", color="#9CA3AF"),
                 height=330,
-                margin=dict(l=15, r=15, t=45, b=15)
+                margin=dict(l=15, r=15, t=40, b=15)
             )
             st.plotly_chart(fig_total, use_container_width=True)
 
@@ -717,11 +733,11 @@ with tab_tracker:
 # =========================================================
 with tab_backtest:
     st.markdown('<div class="sec-header">📊 MULTI-WEEK HISTORICAL BACKTESTING ENGINE</div>', unsafe_allow_html=True)
-    st.caption("Simulate how your $1,000 starting bankroll would have compounded across past seasons using our Monte Carlo model and Quarter-Kelly sizing.")
+    st.caption("Simulate how your starting bankroll would have compounded across past seasons (2023, 2024, 2025, 2026) using your sizing parameters.")
 
     bt_col0, bt_col1, bt_col2, bt_col3, bt_col4 = st.columns(5)
     with bt_col0:
-        bt_year = st.selectbox("Season Year", [2025, 2026], index=0, key="bt_year")
+        bt_year = st.selectbox("Season Year", [2023, 2024, 2025, 2026], index=1, key="bt_year")
     with bt_col1:
         bt_league = st.selectbox("Backtest League", ["ALL SPORTS", "NFL", "CFB", "NCAAB"], key="bt_league")
     with bt_col2:
@@ -744,7 +760,8 @@ with tab_backtest:
                     start_week=int(bt_start_week),
                     end_week=int(bt_end_week),
                     starting_bankroll=starting_bankroll,
-                    kelly_fraction=kelly_fraction
+                    kelly_fraction=kelly_fraction,
+                    fixed_unit_amount=fixed_unit_amount
                 )
 
             st.markdown("<br>", unsafe_allow_html=True)
