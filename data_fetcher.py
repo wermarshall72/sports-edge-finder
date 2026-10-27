@@ -4,12 +4,12 @@ from datetime import datetime
 
 ESPN_URLS = {
     "NFL": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
-    "CFB": "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=100"
+    "CFB": "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=100",
+    "NCAAB": "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?limit=100"
 }
 
 
 def parse_win_pct(record_str: str) -> float:
-    """Converts a team record string like '6-2' or '5-2-1' into a win percentage (0.0 to 1.0)."""
     if not record_str:
         return 0.500
     parts = [int(x) for x in re.findall(r"\d+", str(record_str))]
@@ -18,15 +18,11 @@ def parse_win_pct(record_str: str) -> float:
     return 0.500
 
 
-def extract_advanced_efficiency(competitor: dict) -> dict:
-    """
-    Extracts advanced drive-level efficiency metrics from ESPN competitor statistics 
-    (Yards Per Play, Red Zone Conversion Rate, Success Rate indicators).
-    """
+def extract_advanced_efficiency(competitor: dict, league: str) -> dict:
+    default_ppg = 75.0 if league == "NCAAB" else 5.5
     metrics = {
-        "yards_per_play": 5.5,  # Baseline league average
-        "red_zone_pct": 0.60,   # Baseline red zone touchdown efficiency
-        "explosive_rate": 0.12  # Explosive play frequency
+        "primary_metric": default_ppg,
+        "secondary_metric": 0.60
     }
     
     for stat in competitor.get("statistics", []):
@@ -34,14 +30,11 @@ def extract_advanced_efficiency(competitor: dict) -> dict:
         val_str = stat.get("displayValue", "0")
         try:
             val = float(re.findall(r"[\d\.]+", val_str)[0])
-            if "yardsperplay" in name or "ypg" in name or "yards/play" in name:
-                if 3.0 <= val <= 8.5:
-                    metrics["yards_per_play"] = val
-            elif "redzone" in name or "rz" in name:
-                if val > 1.0: # If given as percentage like 85.0
-                    val = val / 100.0
-                if 0.3 <= val <= 1.0:
-                    metrics["red_zone_pct"] = val
+            if "points" in name or "ppg" in name or "avg" in name:
+                if league == "NCAAB" and 50.0 <= val <= 105.0:
+                    metrics["primary_metric"] = val
+                elif league != "NCAAB" and 3.0 <= val <= 8.5:
+                    metrics["primary_metric"] = val
         except (ValueError, IndexError, TypeError):
             pass
             
@@ -49,7 +42,6 @@ def extract_advanced_efficiency(competitor: dict) -> dict:
 
 
 def parse_home_spread(details_str: str, home_abbr: str, away_abbr: str, default_spread: float) -> float:
-    """Parses ESPN's spread string from the HOME team's perspective."""
     if not details_str or "EVEN" in str(details_str).upper() or "PK" in str(details_str).upper():
         return 0.0
 
@@ -68,13 +60,9 @@ def parse_home_spread(details_str: str, home_abbr: str, away_abbr: str, default_
 
 
 def fetch_live_slate(league: str = "NFL") -> list:
-    """
-    Pulls live matchups, sportsbook odds, and integrates advanced drive-level 
-    efficiency metrics (Yards per Play, Red Zone conversion) into score projections.
-    """
     url = ESPN_URLS.get(league, ESPN_URLS["NFL"])
-    default_total = 45.5 if league == "NFL" else 53.5
-    hfa = 2.0 if league == "NFL" else 3.0
+    default_total = 148.5 if league == "NCAAB" else (45.5 if league == "NFL" else 53.5)
+    hfa = 3.5 if league == "NCAAB" else (2.0 if league == "NFL" else 3.0)
 
     try:
         resp = requests.get(url, timeout=8)
@@ -110,11 +98,9 @@ def fetch_live_slate(league: str = "NFL") -> list:
         home_wp = parse_win_pct(home_rec)
         away_wp = parse_win_pct(away_rec)
 
-        # Extract Advanced Efficiency Stats
-        home_eff = extract_advanced_efficiency(home_comp)
-        away_eff = extract_advanced_efficiency(away_comp)
+        home_eff = extract_advanced_efficiency(home_comp, league)
+        away_eff = extract_advanced_efficiency(away_comp, league)
 
-        # Extract live sportsbook odds
         odds_list = comp.get("odds", [])
         book_home_spread = None
         book_total = None
@@ -149,27 +135,21 @@ def fetch_live_slate(league: str = "NFL") -> list:
         if book_total is None:
             book_total = default_total
 
-        # --- ADVANCED EFFICIENCY BLEND MODEL ---
-        # Factor Yards Per Play differential and Red Zone efficiency into power ratings
-        ypp_diff = home_eff["yards_per_play"] - away_eff["yards_per_play"]
-        rz_diff = home_eff["red_zone_pct"] - away_eff["red_zone_pct"]
-        
-        efficiency_margin_boost = (ypp_diff * 3.2) + (rz_diff * 4.0)
-        
-        rating_scale = 10.0 if league == "NFL" else 17.0
-        stat_fair_margin = ((home_wp - away_wp) * rating_scale) + hfa + efficiency_margin_boost
+        rating_scale = 14.0 if league == "NCAAB" else (10.0 if league == "NFL" else 17.0)
+        stat_fair_margin = ((home_wp - away_wp) * rating_scale) + hfa
 
         if book_home_spread is None:
             book_home_spread = round(-stat_fair_margin * 2.0) / 2.0
 
         market_implied_margin = -book_home_spread
-        model_expected_margin = (0.50 * stat_fair_margin) + (0.50 * market_implied_margin)
+        model_expected_margin = (0.45 * stat_fair_margin) + (0.55 * market_implied_margin)
 
-        # Efficiency-adjusted scoring totals
         base_half = book_total / 2.0
-        eff_total_modifier = ((home_eff["yards_per_play"] + away_eff["yards_per_play"] - 11.0) * 2.5)
-        stat_total = book_total + eff_total_modifier
-        model_expected_total = (0.55 * book_total) + (0.45 * stat_total)
+        h_score_base = home_eff["primary_metric"] if home_eff["primary_metric"] != (75.0 if league=="NCAAB" else 5.5) else base_half
+        a_score_base = away_eff["primary_metric"] if away_eff["primary_metric"] != (75.0 if league=="NCAAB" else 5.5) else base_half
+        
+        stat_total = h_score_base + a_score_base
+        model_expected_total = (0.60 * book_total) + (0.40 * stat_total)
 
         home_proj = round((model_expected_total + model_expected_margin) / 2.0, 1)
         away_proj = round((model_expected_total - model_expected_margin) / 2.0, 1)
@@ -203,7 +183,19 @@ def fetch_live_slate(league: str = "NFL") -> list:
 
 
 def get_fallback_slate(league: str = "NFL") -> list:
-    if league == "NFL":
+    if league == "NCAAB":
+        return [
+            {
+                "game_id": "ncaab_1", "league": "NCAAB",
+                "matchup": "Duke Blue Devils @ North Carolina Tar Heels", "short_matchup": "DUKE @ UNC",
+                "status": "Wed 8:00 PM", "away_team": "Duke Blue Devils", "home_team": "North Carolina Tar Heels",
+                "away_abbr": "DUKE", "home_abbr": "UNC", "away_record": "12-2", "home_record": "11-3",
+                "away_proj": 74.5, "home_proj": 76.0, "book_home_spread": -2.5, "book_away_spread": 2.5,
+                "book_total": 151.5, "home_spread_odds": -110, "away_spread_odds": -110,
+                "over_odds": -110, "under_odds": -110
+            }
+        ]
+    elif league == "NFL":
         return [
             {
                 "game_id": "nfl_1", "league": "NFL",

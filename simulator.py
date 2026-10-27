@@ -1,12 +1,11 @@
 import numpy as np
 
-# League-specific margin volatility (Standard Deviation in points)
 LEAGUE_STD_DEV = {
     "NFL": 13.5,
-    "CFB": 17.5
+    "CFB": 17.5,
+    "NCAAB": 11.5
 }
 
-# Key NFL spread numbers (most common final margins of victory in NFL history)
 NFL_KEY_NUMBERS = {
     3: "🔥 Key #3 (~15% of NFL games)",
     7: "🔥 Key #7 (~9% of NFL games)",
@@ -18,7 +17,6 @@ NFL_KEY_NUMBERS = {
 
 
 def american_to_implied_prob(odds: int) -> float:
-    """Converts American odds (e.g., -110 or +120) to Implied Breakeven Probability (0.0 to 1.0)."""
     if odds < 0:
         return abs(odds) / (abs(odds) + 100.0)
     else:
@@ -26,7 +24,6 @@ def american_to_implied_prob(odds: int) -> float:
 
 
 def american_to_decimal_payout(odds: int) -> float:
-    """Returns net profit per $1 risked (b in the Kelly Criterion formula)."""
     if odds < 0:
         return 100.0 / abs(odds)
     else:
@@ -34,7 +31,6 @@ def american_to_decimal_payout(odds: int) -> float:
 
 
 def check_key_number_alert(league: str, bet_type: str, model_fair_line: float, book_line: float) -> str:
-    """Checks if the discrepancy between our model and BetSaracen crosses a crucial NFL key number."""
     if league != "NFL" or "Spread" not in bet_type:
         return "Standard distribution"
 
@@ -62,10 +58,6 @@ def run_monte_carlo(
     kelly_fraction: float = 0.25,
     num_sims: int = 10000
 ) -> dict:
-    """
-    Runs 10,000 simulated games using NumPy and calculates Cover %, Implied %,
-    Edge %, EV %, and Fractional Kelly Criterion recommended stake for a single market.
-    """
     margin_std = LEAGUE_STD_DEV.get(league, 13.5)
     team_std = margin_std / np.sqrt(2.0)
 
@@ -143,10 +135,6 @@ def simulate_game_all_markets(
     kelly_fraction: float = 0.25,
     num_sims: int = 10000
 ) -> list:
-    """
-    Evaluates all 4 bet types (Away Spread, Home Spread, Over, Under) for a single game
-    and returns a list of 4 market dictionaries with full Monte Carlo results.
-    """
     league = game["league"]
     home_proj = float(game["home_proj"])
     away_proj = float(game["away_proj"])

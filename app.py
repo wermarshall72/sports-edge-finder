@@ -6,7 +6,6 @@ import simulator as sim
 import data_fetcher as dfetch
 import backtest_engine as btest
 
-# 1. Page Configuration
 st.set_page_config(
     page_title="SARACEN EDGE // Quantitative Terminal",
     page_icon="⚡",
@@ -16,9 +15,6 @@ st.set_page_config(
 
 db.init_db()
 
-# ---------------------------------------------------------
-# PRO SPORTSBOOK CUSTOM CSS STYLING
-# ---------------------------------------------------------
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap');
@@ -287,12 +283,12 @@ with st.sidebar:
 
     selected_league = st.segmented_control(
         "LEAGUE SLATE",
-        options=["NFL", "CFB"],
-        default="NFL",
+        options=["NFL", "CFB", "NCAAB"],
+        default="NCAAB",
         selection_mode="single"
     )
     if not selected_league:
-        selected_league = "NFL"
+        selected_league = "NCAAB"
 
     if st.button("↻ Sync Live Market Feed", use_container_width=True):
         st.cache_data.clear()
@@ -707,11 +703,11 @@ with tab_tracker:
 # =========================================================
 with tab_backtest:
     st.markdown('<div class="sec-header">📊 MULTI-WEEK HISTORICAL BACKTESTING ENGINE</div>', unsafe_allow_html=True)
-    st.caption("Simulate how your $1,000 starting bankroll would have compounded across past weeks of the 2026 season using our Monte Carlo model and Quarter-Kelly sizing.")
+    st.caption("Simulate how your $1,000 starting bankroll would have compounded across past weeks using our Monte Carlo model and Quarter-Kelly sizing.")
 
     bt_col1, bt_col2, bt_col3, bt_col4 = st.columns(4)
     with bt_col1:
-        bt_league = st.selectbox("Backtest League", ["NFL", "CFB"], key="bt_league")
+        bt_league = st.selectbox("Backtest League", ["NFL", "CFB", "NCAAB"], key="bt_league")
     with bt_col2:
         bt_start_week = st.number_input("Start Week", min_value=1, max_value=15, value=1, step=1)
     with bt_col3:
@@ -736,7 +732,6 @@ with tab_backtest:
 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Summary Metrics
             bm1, bm2, bm3, bm4 = st.columns(4)
             bm1.metric("Initial Bankroll", f"${starting_bankroll:,.2f}", f"Week {bt_start_week} Start")
             bm2.metric("Ending Bankroll", f"${bt_results['final_bankroll']:,.2f}", f"Week {bt_end_week} End")
@@ -748,7 +743,6 @@ with tab_backtest:
 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Weekly Performance Table & Equity Curve
             w_col1, w_col2 = st.columns([2, 3])
 
             with w_col1:
@@ -756,7 +750,6 @@ with tab_backtest:
                 st.dataframe(pd.DataFrame(bt_results["weekly_summary"]), use_container_width=True, hide_index=True)
 
             with w_col2:
-                # Cumulative Equity Curve Chart
                 summary_df = pd.DataFrame(bt_results["weekly_summary"])
                 if not summary_df.empty:
                     x_weeks = ["Start"] + summary_df["Week"].tolist()
